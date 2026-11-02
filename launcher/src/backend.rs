@@ -1816,9 +1816,21 @@ pub fn preparer(
         let linked = data_dir().join("linked-minecraft");
         if from == MinecraftFrom::Mojang {
             // Straight from Mojang (what is already there and whole is kept), for an owner only.
-            download_for_owner(&pins, &own, &fetch, log)
-                .map_err(|e| e.trim_start_matches("\n  • ").to_string())?;
-            own
+            match download_for_owner(&pins, &own, &fetch, log) {
+                Ok(()) => own,
+                Err(error) => {
+                    // Download failure must not make an existing, pinned local install unusable.
+                    // Resolution still verifies the client and manifest; it does not grant
+                    // ownership or permit downloads without the normal account check.
+                    match sources::resolve(minecraft, &pins, &known, &linked, &fetch, log) {
+                        Ok(sources::Resolved::Folder(folder)) => {
+                            log("Download failed; using the local Minecraft installation instead.".into());
+                            folder
+                        }
+                        _ => return Err(error.trim_start_matches("\n  • ").to_string()),
+                    }
+                }
+            }
         } else {
             let resolved = sources::resolve(minecraft, &pins, &known, &linked, &fetch, log);
             if reused {
