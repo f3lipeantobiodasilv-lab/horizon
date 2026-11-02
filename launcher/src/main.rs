@@ -2027,13 +2027,30 @@ fn sign_in_change(shown: &mut Option<SignInState>, next: SignInState) -> Option<
     Some(next)
 }
 
-/// `owner`: whether an account here owns the game, by the keychain (`Launcher::owner`).
-fn play_press(prepared: bool, owner: Option<bool>, busy: bool) -> PlayPress {
+/// `owner` is the real account state. Developer offline mode only permits preparing from
+/// a local install; it does not turn an offline player into an authenticated owner.
+fn play_press(prepared: bool, owner: Option<bool>, busy: bool, dev_offline: bool) -> PlayPress {
     match (prepared, owner) {
         _ if busy => PlayPress::Nothing,
         (true, _) => PlayPress::Play,
+        (false, _) if dev_offline => PlayPress::PrepareThenPlay,
         (false, Some(true)) => PlayPress::PrepareThenPlay,
         (false, _) => PlayPress::Nothing,
+    }
+}
+
+/// Which first-preparation choices to show. In developer offline mode show only the
+/// ordinary local-install Prepare action, never the owner-only download action.
+fn prepare_owner(
+    prepared: bool,
+    preparing: bool,
+    owner: Option<bool>,
+    dev_offline: bool,
+) -> Option<bool> {
+    if prepared || preparing || dev_offline {
+        None
+    } else {
+        owner
     }
 }
 
@@ -2041,7 +2058,7 @@ fn play_press(prepared: bool, owner: Option<bool>, busy: bool) -> PlayPress {
 /// code, a pack's Play) starts it now: only when Play would play. Never while a preparation runs:
 /// the game would open on half-written files.
 fn starts_now(prepared: bool, preparing: bool, running: bool) -> bool {
-    play_press(prepared, None, preparing || running) == PlayPress::Play
+    play_press(prepared, None, preparing || running, false) == PlayPress::Play
 }
 
 /// Whether `tag` can start being deleted now: it is installed, no install is writing it, and it
@@ -2787,11 +2804,14 @@ impl Launcher {
         let left = self.download_left();
         let steps = self.preparing.then(|| self.steps(&version, left));
 
-        // Not prepared: an owner can have Horizon download Minecraft from Mojang; without an
-        // owner there is nothing to play, so signing in comes first.
-        let first = (!prepared && !self.preparing)
-            .then_some(self.owner_shown())
-            .flatten();
+        // In developer offline mode, prepare from the local install regardless of owner
+        // status. Otherwise a first-time player sees the account-dependent choices.
+        let first = prepare_owner(
+            prepared,
+            self.preparing,
+            self.owner_shown(),
+            self.settings.dev_offline,
+        );
         // No launcher folder with Minecraft on this computer: an owner needs none.
         let no_install = self.settings.minecraft_dir.is_none();
         let resources_value = match first {
@@ -2872,7 +2892,7 @@ impl Launcher {
             )),
             None => div().child(prepare),
         };
-        let owner = self.owner == Some(true);
+        let owner = self.owner == Some(true) && !self.settings.dev_offline;
         let minecraft = self.settings.minecraft_dir.as_deref().map_or_else(
             || {
                 div()
@@ -4923,16 +4943,39 @@ mod tests {
     #[test]
     fn play_prepares_first_for_an_owner() {
         use super::{play_press, PlayPress};
-        assert_eq!(play_press(true, Some(true), false), PlayPress::Play);
-        assert_eq!(play_press(true, None, false), PlayPress::Play);
+        assert_eq!(play_press(true, Some(true), false, false), PlayPress::Play);
+        assert_eq!(play_press(true, None, false, false), PlayPress::Play);
         assert_eq!(
-            play_press(false, Some(true), false),
+            play_press(false, Some(true), false, false),
             PlayPress::PrepareThenPlay
         );
-        assert_eq!(play_press(false, Some(false), false), PlayPress::Nothing);
-        assert_eq!(play_press(false, None, false), PlayPress::Nothing);
-        assert_eq!(play_press(false, Some(true), true), PlayPress::Nothing);
-        assert_eq!(play_press(true, Some(true), true), PlayPress::Nothing);
+        assert_eq!(
+            play_press(false, Some(false), false, false),
+            PlayPress::Nothing
+        );
+        assert_eq!(play_press(false, None, false, false), PlayPress::Nothing);
+        assert_eq!(
+            play_press(false, Some(true), true, false),
+            PlayPress::Nothing
+        );
+        assert_eq!(play_press(true, Some(true), true, false), PlayPress::Nothing);
+    }
+
+    #[test]
+    fn developer_offline_prepares_locally_without_claiming_ownership() {
+        use super::{play_press, prepare_owner, PlayPress};
+        for owner in [None, Some(false), Some(true)] {
+            assert_eq!(prepare_owner(false, false, owner, true), None);
+            assert_eq!(
+                play_press(false, owner, false, true),
+                PlayPress::PrepareThenPlay
+            );
+            assert_eq!(play_press(false, owner, true, true), PlayPress::Nothing);
+        }
+        assert_eq!(prepare_owner(false, false, Some(false), false), Some(false));
+        assert_eq!(prepare_owner(false, false, Some(true), false), Some(true));
+        assert_eq!(prepare_owner(true, false, Some(true), false), None);
+        assert_eq!(prepare_owner(false, true, Some(true), false), None);
     }
 
     /// A server's Join (and every other shortcut) waits like Play: not while the version's
