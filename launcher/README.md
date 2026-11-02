@@ -149,6 +149,12 @@ The opening, then Play ([clip](docs/opening.webm)):
   Share log takes the names out of the log too. `horizon-launcher account offline
   [NAME]`, `account select <name>` (an account or an offline name), `account forget-offline
   <name>`.
+- **Developer offline option**: click the launcher version in the sidebar seven times to reveal
+  Developer options in Settings, then enable **Offline names without an account**. The owner
+  screen is hidden and Home offers **Prepare** from the chosen Minecraft folder, even without a
+  signed-in owner; Play can prepare it first. This does not create an authenticated session or
+  grant ownership. It is not a fully network-isolated mock mode: preparation can still try to
+  download missing files, Java or other resources, and requires a compatible local installation.
 - **Accent and Home background**: on top of Dark, Light or System, Settings > Launcher picks an
   accent (Horizon's violet, blue, teal, green, amber, red or pink) and a picture of the player's
   own behind Home (PNG, JPEG or WebP, cropped to fill; **Landscape** brings Horizon's back). An
